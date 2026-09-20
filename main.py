@@ -13,6 +13,7 @@ log = logging.getLogger(__name__)
 
 WAIT_BOT_NAME, WAIT_FILES, WAIT_CONFIRM = range(3)
 
+
 # ---------- helpers ----------
 async def is_member(context, user_id):
     for ch in CHANNELS:
@@ -23,6 +24,7 @@ async def is_member(context, user_id):
         except Exception:
             continue
     return True, None
+
 
 async def require_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -38,6 +40,7 @@ async def require_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return False
 
+
 # ---------- commands ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_join(update, context):
@@ -52,6 +55,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• /cancel — cancel",
         parse_mode="HTML"
     )
+
 
 async def mybots(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_join(update, context):
@@ -69,6 +73,7 @@ async def mybots(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     await update.message.reply_text("\n".join(lines), parse_mode="HTML",
                                     disable_web_page_preview=True)
+
 
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_join(update, context):
@@ -90,6 +95,7 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="HTML",
                                     disable_web_page_preview=True)
 
+
 # ---------- upload flow ----------
 async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_join(update, context):
@@ -99,6 +105,7 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📝 <b>Step 1/3</b>\nSend a short <b>name</b> for your bot:",
                                     parse_mode="HTML")
     return WAIT_BOT_NAME
+
 
 async def got_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = update.message.text.strip()
@@ -111,6 +118,7 @@ async def got_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Send /done when finished.", parse_mode="HTML"
     )
     return WAIT_FILES
+
 
 async def got_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     doc = update.message.document
@@ -129,6 +137,7 @@ async def got_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return WAIT_FILES
 
+
 async def done_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
     files = context.user_data.get("files", [])
     if not files:
@@ -144,6 +153,7 @@ async def done_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]])
     )
     return WAIT_CONFIRM
+
 
 async def confirm_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -202,9 +212,11 @@ async def confirm_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ConversationHandler.END
 
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Cancelled.")
     return ConversationHandler.END
+
 
 # ---------- admin callback ----------
 async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -243,6 +255,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"
         )
 
+
 async def join_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -252,7 +265,8 @@ async def join_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await q.answer("Still not joined all channels.", show_alert=True)
 
-# ---------- build application (called from webhook.py) ----------
+
+# ---------- build application ----------
 def build_application():
     init_db()
     app = Application.builder().token(BOT_TOKEN).build()
