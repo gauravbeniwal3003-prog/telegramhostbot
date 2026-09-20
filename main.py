@@ -1,4 +1,6 @@
-import json, secrets, logging
+import json
+import secrets
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
@@ -8,40 +10,87 @@ from config import BOT_TOKEN, ADMIN_ID, CHANNELS, MAX_FILE_SIZE, PUBLIC_BASE_URL
 from database import init_db, add_bot, set_running, get_bot, get_user_bots
 from github_handler import upload_files
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(name)s | %(levelname)s | %(message)s"
+)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("telegram").setLevel(logging.INFO)
 log = logging.getLogger(__name__)
 
 WAIT_BOT_NAME, WAIT_FILES, WAIT_CONFIRM = range(3)
 
 
-# ---------- helpers ----------
+# ============================================================
+#                   JOIN / MEMBERSHIP HELPERS
+# ============================================================
+
 async def is_member(context, user_id):
+    """
+    Returns (all_joined: bool, missing_channels: list)
+    """
+    missing = []
     for ch in CHANNELS:
         try:
             m = await context.bot.get_chat_member(ch["id"], user_id)
             if m.status in ("left", "kicked"):
-                return False, ch
-        except Exception:
-            continue
-    return True, None
+                missing.append(ch)
+        except Exception as e:
+            log.warning("get_chat_member failed for %s: %s", ch["username"], e)
+            missing.append(ch)
+    return (len(missing) == 0), missing
+
+
+def join_keyboard(missing=None):
+    """
+    Builds join buttons for the given missing channels.
+    If missing is None or empty, shows all channels.
+    """
+    channels_to_show = missing if missing else CHANNELS
+    kb = [
+        [InlineKeyboardButton(f"📢 Join {c['username']}", url=c["url"])]
+        for c in channels_to_show
+    ]
+    kb.append([InlineKeyboardButton("✅ I Have Joined — Verify", callback_data="check_join")])
+    return InlineKeyboardMarkup(kb)
 
 
 async def require_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Sends join prompt with buttons if user hasn't joined.
+    Returns True if all joined, else False.
+    """
     user = update.effective_user
-    ok, ch = await is_member(context, user.id)
+    ok, missing = await is_member(context, user.id)
+
     if ok:
         return True
-    kb = [[InlineKeyboardButton(f"Join {c['username']}", url=c["url"])] for c in CHANNELS]
-    kb.append([InlineKeyboardButton("✅ I Joined", callback_data="check_join")])
+
+    text = (
+        "🚫 <b>Access Denied</b>\n\n"
+        "Is bot ko use karne ke liye tumhe neeche diye gaye <b>saare channels join</b> karne honge.\n\n"
+        "<b>Missing Channels:</b>\n"
+        + "\n".join(f"❌ {c['username']}" for c in missing)
+        + "\n\n"
+        "<b>Steps:</b>\n"
+        "1️⃣ Neeche har button pe click karke channel join karo\n"
+        "2️⃣ Sab join karne ke baad <b>✅ I Have Joined</b> pe click karo\n\n"
+        "⚠️ Bina join kiye bot kaam nahi karega."
+    )
+
     await update.effective_message.reply_text(
-        "🚫 <b>Access Denied</b>\n\nJoin all channels to use this bot:\n"
-        + "\n".join(f"• {c['username']}" for c in CHANNELS),
-        reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML"
+        text,
+        reply_markup=join_keyboard(missing),
+        parse_mode="HTML",
+        disable_web_page_preview=True
     )
     return False
 
 
-# ---------- commands ----------
+# ============================================================
+#                       COMMANDS
+# ============================================================
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_join(update, context):
         return
@@ -71,8 +120,10 @@ async def mybots(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Status: <code>{b['status']}</code>"
             + (f"\nPing: <code>{b['ping_url']}</code>" if b['ping_url'] else "")
         )
-    await update.message.reply_text("\n".join(lines), parse_mode="HTML",
-                                    disable_web_page_preview=True)
+    await update.message.reply_text(
+        "\n".join(lines), parse_mode="HTML",
+        disable_web_page_preview=True
+    )
 
 
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -92,18 +143,25 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"<b>Username:</b> <code>{bot['ping_user']}</code>\n"
             f"<b>Password:</b> <code>{bot['ping_pass']}</code>"
         )
-    await update.message.reply_text(text, parse_mode="HTML",
-                                    disable_web_page_preview=True)
+    await update.message.reply_text(
+        text, parse_mode="HTML",
+        disable_web_page_preview=True
+    )
 
 
-# ---------- upload flow ----------
+# ============================================================
+#                    UPLOAD CONVERSATION
+# ============================================================
+
 async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_join(update, context):
         return ConversationHandler.END
     context.user_data.clear()
     context.user_data["files"] = []
-    await update.message.reply_text("📝 <b>Step 1/3</b>\nSend a short <b>name</b> for your bot:",
-                                    parse_mode="HTML")
+    await update.message.reply_text(
+        "📝 <b>Step 1/3</b>\nSend a short <b>name</b> for your bot:",
+        parse_mode="HTML"
+    )
     return WAIT_BOT_NAME
 
 
@@ -115,7 +173,8 @@ async def got_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["bot_name"] = name
     await update.message.reply_text(
         "📤 <b>Step 2/3</b>\nSend your <b>.py files</b> (max 1 MB each).\n"
-        "Send /done when finished.", parse_mode="HTML"
+        "Send /done when finished.",
+        parse_mode="HTML"
     )
     return WAIT_FILES
 
@@ -132,7 +191,8 @@ async def got_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     content = bytes(await f.download_as_bytearray())
     context.user_data["files"].append({"name": doc.file_name, "content": content})
     await update.message.reply_text(
-        f"✅ Added <code>{doc.file_name}</code> ({len(context.user_data['files'])} total).\nSend more or /done.",
+        f"✅ Added <code>{doc.file_name}</code> "
+        f"({len(context.user_data['files'])} total).\nSend more or /done.",
         parse_mode="HTML"
     )
     return WAIT_FILES
@@ -165,14 +225,17 @@ async def confirm_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     name  = context.user_data["bot_name"]
     files = context.user_data["files"]
-    folder = f"bots/{user.id}_{secrets.token_hex(4)}_{name.replace(' ','_')}"
+    folder = f"bots/{user.id}_{secrets.token_hex(4)}_{name.replace(' ', '_')}"
 
     await q.edit_message_text("⏳ Uploading to GitHub…")
     try:
         links = upload_files(folder, files)
     except Exception as e:
         log.exception("GitHub upload failed")
-        await q.edit_message_text(f"❌ GitHub upload failed:\n<code>{e}</code>", parse_mode="HTML")
+        await q.edit_message_text(
+            f"❌ GitHub upload failed:\n<code>{e}</code>",
+            parse_mode="HTML"
+        )
         return ConversationHandler.END
 
     bot_id = add_bot(
@@ -218,7 +281,10 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-# ---------- admin callback ----------
+# ============================================================
+#                    ADMIN CALLBACK
+# ============================================================
+
 async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -241,9 +307,11 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Open URL in Chrome → enter creds → JSON status milega."
         )
         try:
-            await context.bot.send_message(bot["user_id"], user_msg,
-                                           parse_mode="HTML",
-                                           disable_web_page_preview=True)
+            await context.bot.send_message(
+                bot["user_id"], user_msg,
+                parse_mode="HTML",
+                disable_web_page_preview=True
+            )
         except Exception:
             log.warning("Could not DM user %s", bot["user_id"])
 
@@ -256,17 +324,85 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+# ============================================================
+#                    JOIN VERIFY CALLBACK
+# ============================================================
+
 async def join_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
-    ok, ch = await is_member(context, q.from_user.id)
+
+    user = q.from_user
+    ok, missing = await is_member(context, user.id)
+
     if ok:
-        await q.edit_message_text("✅ Verified! Send /start")
+        await q.edit_message_text(
+            "✅ <b>Verification Successful!</b>\n\n"
+            "Tumne saare channels join kar liye hain. 🎉\n\n"
+            "Ab bot use kar sakte ho. Send /start to begin.",
+            parse_mode="HTML"
+        )
+        try:
+            await context.bot.send_message(
+                user.id,
+                "👋 <b>Welcome to Free Telegram Bot Hosting</b>\n\n"
+                "Upload any number of Python files (max <b>1 MB</b> each).\n\n"
+                "<b>Commands</b>\n"
+                "• /upload — submit a new bot\n"
+                "• /mybots — list your bots\n"
+                "• /status &lt;bot_id&gt; — check status\n"
+                "• /cancel — cancel",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
     else:
-        await q.answer("Still not joined all channels.", show_alert=True)
+        text = (
+            "⚠️ <b>Abhi Bhi Incomplete</b>\n\n"
+            "Tumne abhi tak ye channels join nahi kiye:\n"
+            + "\n".join(f"❌ {c['username']}" for c in missing)
+            + "\n\n"
+            "Pehle in sab ko join karo, phir <b>✅ I Have Joined</b> pe click karo."
+        )
+        try:
+            await q.edit_message_text(
+                text,
+                reply_markup=join_keyboard(missing),
+                parse_mode="HTML",
+                disable_web_page_preview=True
+            )
+        except Exception:
+            await context.bot.send_message(
+                user.id,
+                text,
+                reply_markup=join_keyboard(missing),
+                parse_mode="HTML",
+                disable_web_page_preview=True
+            )
 
 
-# ---------- build application ----------
+# ============================================================
+#                    CATCH-ALL MESSAGE
+# ============================================================
+
+async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Catch-all for any non-command text message."""
+    if not await require_join(update, context):
+        return
+    await update.message.reply_text(
+        "🤖 Samajh nahi aaya. Ye commands use karo:\n"
+        "/start — main menu\n"
+        "/upload — new bot submit karo\n"
+        "/mybots — apne bots dekho\n"
+        "/status &lt;bot_id&gt; — bot status dekho",
+        parse_mode="HTML"
+    )
+
+
+# ============================================================
+#                    BUILD APPLICATION
+# ============================================================
+
 def build_application():
     init_db()
     app = Application.builder().token(BOT_TOKEN).build()
@@ -274,13 +410,23 @@ def build_application():
     conv = ConversationHandler(
         entry_points=[CommandHandler("upload", upload_start)],
         states={
-            WAIT_BOT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, got_name)],
-            WAIT_FILES:    [MessageHandler(filters.Document.ALL, got_file),
-                            CommandHandler("done", done_files)],
-            WAIT_CONFIRM:  [CallbackQueryHandler(confirm_upload, pattern="^(confirm|cancel)_upload$")],
+            WAIT_BOT_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, got_name)
+            ],
+            WAIT_FILES: [
+                MessageHandler(filters.Document.ALL, got_file),
+                CommandHandler("done", done_files)
+            ],
+            WAIT_CONFIRM: [
+                CallbackQueryHandler(
+                    confirm_upload,
+                    pattern="^(confirm|cancel)_upload$"
+                )
+            ],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
-        per_user=True, per_chat=True,
+        per_user=True,
+        per_chat=True,
     )
 
     app.add_handler(CommandHandler("start", start))
@@ -289,4 +435,5 @@ def build_application():
     app.add_handler(conv)
     app.add_handler(CallbackQueryHandler(admin_callback, pattern="^run_"))
     app.add_handler(CallbackQueryHandler(join_check, pattern="^check_join$"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_any_message))
     return app
