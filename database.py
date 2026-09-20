@@ -12,7 +12,7 @@ def init_db():
             folder        TEXT NOT NULL,
             files_json    TEXT NOT NULL,
             github_links  TEXT NOT NULL,
-            status        TEXT DEFAULT 'pending',   -- pending | running | stopped
+            status        TEXT DEFAULT 'pending',
             ping_url      TEXT,
             ping_user     TEXT,
             ping_pass     TEXT,
@@ -40,12 +40,8 @@ def set_running(bot_id, ping_url, ping_user, ping_pass):
         "UPDATE bots SET status='running', ping_url=?, ping_user=?, ping_pass=? WHERE id=?",
         (ping_url, ping_user, ping_pass, bot_id)
     )
-    con.commit(); con.close()
-
-def set_status(bot_id, status):
-    con = sqlite3.connect(DB_PATH)
-    con.execute("UPDATE bots SET status=? WHERE id=?", (status, bot_id))
-    con.commit(); con.close()
+    con.commit()
+    con.close()
 
 def get_bot(bot_id):
     con = sqlite3.connect(DB_PATH)
