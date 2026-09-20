@@ -1,20 +1,16 @@
-import os, json, secrets, shutil, logging
+import json, secrets, logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.constants import ChatAction
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
     ContextTypes, filters, ConversationHandler
 )
-
-from config import (BOT_TOKEN, ADMIN_ID, CHANNELS, TEMP_DIR,
-                    MAX_FILE_SIZE, PUBLIC_BASE_URL)
-from database import init_db, add_bot, set_running, set_status, get_bot, get_user_bots
+from config import BOT_TOKEN, ADMIN_ID, CHANNELS, MAX_FILE_SIZE, PUBLIC_BASE_URL
+from database import init_db, add_bot, set_running, get_bot, get_user_bots
 from github_handler import upload_files
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
-# Conversation states
 WAIT_BOT_NAME, WAIT_FILES, WAIT_CONFIRM = range(3)
 
 # ---------- helpers ----------
@@ -25,7 +21,6 @@ async def is_member(context, user_id):
             if m.status in ("left", "kicked"):
                 return False, ch
         except Exception:
-            # If bot isn't admin or channel ID wrong, be lenient
             continue
     return True, None
 
@@ -37,10 +32,9 @@ async def require_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = [[InlineKeyboardButton(f"Join {c['username']}", url=c["url"])] for c in CHANNELS]
     kb.append([InlineKeyboardButton("✅ I Joined", callback_data="check_join")])
     await update.effective_message.reply_text(
-        "🚫 <b>Access Denied</b>\n\nTo use this bot you must join all channels below:\n"
+        "🚫 <b>Access Denied</b>\n\nJoin all channels to use this bot:\n"
         + "\n".join(f"• {c['username']}" for c in CHANNELS),
-        reply_markup=InlineKeyboardMarkup(kb),
-        parse_mode="HTML"
+        reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML"
     )
     return False
 
@@ -50,13 +44,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text(
         "👋 <b>Welcome to Free Telegram Bot Hosting</b>\n\n"
-        "Upload any number of Python files (max <b>1 MB</b> per file).\n"
-        "Your files are stored on GitHub and hosted by admin.\n\n"
+        "Upload any number of Python files (max <b>1 MB</b> each).\n\n"
         "<b>Commands</b>\n"
         "• /upload — submit a new bot\n"
-        "• /mybots — list your bots & ping URLs\n"
+        "• /mybots — list your bots\n"
         "• /status &lt;bot_id&gt; — check status\n"
-        "• /cancel — cancel current action",
+        "• /cancel — cancel",
         parse_mode="HTML"
     )
 
@@ -65,14 +58,14 @@ async def mybots(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     bots = get_user_bots(update.effective_user.id)
     if not bots:
-        await update.message.reply_text("📭 You have no bots yet. Use /upload")
+        await update.message.reply_text("📭 No bots yet. Use /upload")
         return
-    lines = ["<b>🤖 Your Bots</b>\n"]
+    lines = ["<b>🤖 Your Bots</b>"]
     for b in bots:
         lines.append(
             f"\n<b>#{b['id']} — {b['bot_name']}</b>\n"
-            f"Status: <code>{b['status']}</code>\n"
-            + (f"Ping: <code>{b['ping_url']}</code>\n" if b['ping_url'] else "")
+            f"Status: <code>{b['status']}</code>"
+            + (f"\nPing: <code>{b['ping_url']}</code>" if b['ping_url'] else "")
         )
     await update.message.reply_text("\n".join(lines), parse_mode="HTML",
                                     disable_web_page_preview=True)
@@ -80,25 +73,19 @@ async def mybots(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await require_join(update, context):
         return
-    args = context.args
-    if not args or not args[0].isdigit():
+    if not context.args or not context.args[0].isdigit():
         await update.message.reply_text("Usage: /status <bot_id>")
         return
-    bot = get_bot(int(args[0]))
+    bot = get_bot(int(context.args[0]))
     if not bot or bot["user_id"] != update.effective_user.id:
-        await update.message.reply_text("❌ Bot not found.")
+        await update.message.reply_text("❌ Not found.")
         return
-    text = (
-        f"<b>Bot #{bot['id']} — {bot['bot_name']}</b>\n"
-        f"Status: <code>{bot['status']}</code>\n"
-        f"Created: {bot['created_at']}\n"
-    )
+    text = f"<b>Bot #{bot['id']} — {bot['bot_name']}</b>\nStatus: <code>{bot['status']}</code>"
     if bot["ping_url"]:
         text += (
-            f"\n<b>Ping URL</b> (open in Chrome):\n<code>{bot['ping_url']}</code>\n"
-            f"Username: <code>{bot['ping_user']}</code>\n"
-            f"Password: <code>{bot['ping_pass']}</code>\n\n"
-            "The JSON response you see = your bot's live status."
+            f"\n\n<b>Ping URL:</b>\n<code>{bot['ping_url']}</code>\n"
+            f"<b>Username:</b> <code>{bot['ping_user']}</code>\n"
+            f"<b>Password:</b> <code>{bot['ping_pass']}</code>"
         )
     await update.message.reply_text(text, parse_mode="HTML",
                                     disable_web_page_preview=True)
@@ -109,22 +96,19 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     context.user_data.clear()
     context.user_data["files"] = []
-    await update.message.reply_text(
-        "📝 <b>Step 1/3</b>\nSend a short <b>name</b> for your bot:",
-        parse_mode="HTML"
-    )
+    await update.message.reply_text("📝 <b>Step 1/3</b>\nSend a short <b>name</b> for your bot:",
+                                    parse_mode="HTML")
     return WAIT_BOT_NAME
 
 async def got_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = update.message.text.strip()
     if len(name) > 40:
-        await update.message.reply_text("Name too long (max 40). Try again:")
+        await update.message.reply_text("Name too long (max 40):")
         return WAIT_BOT_NAME
     context.user_data["bot_name"] = name
     await update.message.reply_text(
-        "📤 <b>Step 2/3</b>\nNow send your <b>.py files</b> one by one.\n"
-        "Max <b>1 MB</b> per file. Send /done when finished.",
-        parse_mode="HTML"
+        "📤 <b>Step 2/3</b>\nSend your <b>.py files</b> (max 1 MB each).\n"
+        "Send /done when finished.", parse_mode="HTML"
     )
     return WAIT_FILES
 
@@ -134,14 +118,13 @@ async def got_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Only .py files allowed.")
         return WAIT_FILES
     if doc.file_size and doc.file_size > MAX_FILE_SIZE:
-        await update.message.reply_text("⚠️ File exceeds 1 MB.")
+        await update.message.reply_text("⚠️ File > 1 MB.")
         return WAIT_FILES
     f = await doc.get_file()
     content = bytes(await f.download_as_bytearray())
     context.user_data["files"].append({"name": doc.file_name, "content": content})
     await update.message.reply_text(
-        f"✅ Added <code>{doc.file_name}</code> ({len(context.user_data['files'])} total).\n"
-        "Send more or /done.",
+        f"✅ Added <code>{doc.file_name}</code> ({len(context.user_data['files'])} total).\nSend more or /done.",
         parse_mode="HTML"
     )
     return WAIT_FILES
@@ -149,11 +132,11 @@ async def got_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def done_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
     files = context.user_data.get("files", [])
     if not files:
-        await update.message.reply_text("❌ No files uploaded. /upload to restart.")
+        await update.message.reply_text("❌ No files. /upload to restart.")
         return ConversationHandler.END
     await update.message.reply_text(
         f"📦 <b>Step 3/3</b>\nBot: <b>{context.user_data['bot_name']}</b>\n"
-        f"Files: {len(files)}\n\nConfirm submission?",
+        f"Files: {len(files)}\n\nConfirm?",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("✅ Submit", callback_data="confirm_upload"),
@@ -172,8 +155,6 @@ async def confirm_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     name  = context.user_data["bot_name"]
     files = context.user_data["files"]
-
-    # unique folder name
     folder = f"bots/{user.id}_{secrets.token_hex(4)}_{name.replace(' ','_')}"
 
     await q.edit_message_text("⏳ Uploading to GitHub…")
@@ -193,10 +174,7 @@ async def confirm_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
         github_links=json.dumps(links)
     )
 
-    # Admin notification — professional format
-    file_lines = "\n".join(
-        f"• <a href='{l['url']}'>{l['name']}</a>" for l in links
-    )
+    file_lines = "\n".join(f"• <a href='{l['url']}'>{l['name']}</a>" for l in links)
     admin_msg = (
         f"🆕 <b>NEW BOT SUBMISSION</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -207,8 +185,7 @@ async def confirm_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<b>Files:</b> {len(files)}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"<b>GitHub Links:</b>\n{file_lines}\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"Mark as running after manual hosting:"
+        f"━━━━━━━━━━━━━━━━━━━━"
     )
     await context.bot.send_message(
         ADMIN_ID, admin_msg, parse_mode="HTML",
@@ -220,7 +197,7 @@ async def confirm_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await q.edit_message_text(
         f"✅ <b>Submitted!</b>\nBot ID: <code>{bot_id}</code>\n\n"
-        "Admin will host it shortly. Use /status {0} to check.".format(bot_id),
+        f"Admin will host it soon. Use /status {bot_id}",
         parse_mode="HTML"
     )
     return ConversationHandler.END
@@ -229,34 +206,27 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Cancelled.")
     return ConversationHandler.END
 
-# ---------- admin: mark running ----------
+# ---------- admin callback ----------
 async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
-    user = q.from_user
-    if user.id != ADMIN_ID:
+    if q.from_user.id != ADMIN_ID:
         await q.answer("Admin only.", show_alert=True)
         return
-
-    data = q.data
-    if data.startswith("run_"):
-        bot_id = int(data.split("_")[1])
-        # generate private credentials for ping
+    if q.data.startswith("run_"):
+        bot_id = int(q.data.split("_")[1])
         p_user = f"bot{bot_id}"
-        p_pass = secrets.token_urlsafe(16)
+        p_pass = secrets.token_urlsafe(12)
         ping_url = f"{PUBLIC_BASE_URL}/ping/{bot_id}"
-
         set_running(bot_id, ping_url, p_user, p_pass)
         bot = get_bot(bot_id)
 
-        # notify user
         user_msg = (
             f"🎉 <b>Your bot #{bot_id} is now RUNNING!</b>\n\n"
-            f"<b>Ping URL</b> (open in Chrome to check status):\n"
-            f"<code>{ping_url}</code>\n\n"
+            f"<b>Ping URL:</b>\n<code>{ping_url}</code>\n\n"
             f"<b>Username:</b> <code>{p_user}</code>\n"
             f"<b>Password:</b> <code>{p_pass}</code>\n\n"
-            "The JSON response is your bot's live status."
+            "Open URL in Chrome → enter creds → JSON status milega."
         )
         try:
             await context.bot.send_message(bot["user_id"], user_msg,
@@ -265,16 +235,14 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             log.warning("Could not DM user %s", bot["user_id"])
 
-        # show credentials back to admin
         await q.edit_message_text(
-            f"✅ <b>Bot #{bot_id} marked RUNNING</b>\n\n"
+            f"✅ <b>Bot #{bot_id} RUNNING</b>\n\n"
             f"Ping URL: <code>{ping_url}</code>\n"
-            f"Username: <code>{p_user}</code>\n"
-            f"Password: <code>{p_pass}</code>",
+            f"User: <code>{p_user}</code>\n"
+            f"Pass: <code>{p_pass}</code>",
             parse_mode="HTML"
         )
 
-# ---------- join re-check ----------
 async def join_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -284,11 +252,9 @@ async def join_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await q.answer("Still not joined all channels.", show_alert=True)
 
-# ---------- bootstrap ----------
-def main():
+# ---------- build application (called from webhook.py) ----------
+def build_application():
     init_db()
-    os.makedirs(TEMP_DIR, exist_ok=True)
-
     app = Application.builder().token(BOT_TOKEN).build()
 
     conv = ConversationHandler(
@@ -309,9 +275,4 @@ def main():
     app.add_handler(conv)
     app.add_handler(CallbackQueryHandler(admin_callback, pattern="^run_"))
     app.add_handler(CallbackQueryHandler(join_check, pattern="^check_join$"))
-
-    log.info("Bot is running…")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
-
-if __name__ == "__main__":
-    main()
+    return app
