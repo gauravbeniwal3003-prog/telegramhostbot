@@ -1,26 +1,26 @@
 import os
 
-# Telegram
-BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "YOUR_TELEGRAM_USER_ID"))
+# ---- Telegram ----
+BOT_TOKEN = os.environ["BOT_TOKEN"]
+ADMIN_ID  = int(os.environ["ADMIN_ID"])
 
-# Mandatory channels (bot must be admin in these)
+# ---- Channels ----
 CHANNELS = [
-    {"username": "@Gaurav_beni_0001", "url": "https://t.me/Gaurav_beni_0001", "id": -1000000000001},
-    {"username": "@beniwalmods",      "url": "https://t.me/beniwalmods",      "id": -1000000000002},
-    {"username": "@BeniwalzonYT",     "url": "https://t.me/BeniwalzonYT",     "id": -1000000000003},
-    {"username": "@gauravbeniwalhacker","url": "https://t.me/gauravbeniwalhacker","id": -1000000000004},
+    {"username": "@Gaurav_beni_0001",    "url": "https://t.me/Gaurav_beni_0001",    "id": int(os.getenv("CH1_ID", "0"))},
+    {"username": "@beniwalmods",         "url": "https://t.me/beniwalmods",         "id": int(os.getenv("CH2_ID", "0"))},
+    {"username": "@BeniwalzonYT",        "url": "https://t.me/BeniwalzonYT",        "id": int(os.getenv("CH3_ID", "0"))},
+    {"username": "@gauravbeniwalhacker", "url": "https://t.me/gauravbeniwalhacker", "id": int(os.getenv("CH4_ID", "0"))},
 ]
 
-# GitHub
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "YOUR_GITHUB_TOKEN")
-GITHUB_REPO  = os.getenv("GITHUB_REPO", "yourusername/bot-hosting-storage")
+# ---- GitHub (USER bots store karne ke liye) ----
+GITHUB_TOKEN  = os.environ["GITHUB_TOKEN"]
+GITHUB_REPO   = os.environ["GITHUB_REPO"]     # ex: "gauravbeniwal3003-prog/bot-storage"
 GITHUB_BRANCH = "main"
 
-# Storage
-DB_PATH   = "hosting.db"
-TEMP_DIR  = "bots"
-MAX_FILE_SIZE = 1 * 1024 * 1024  # 1 MB
+# ---- Storage ----
+DB_PATH       = "hosting.db"
+TEMP_DIR      = "bots"
+MAX_FILE_SIZE = 1 * 1024 * 1024
 
-# Public URL of this Flask server (used to build ping links)
-PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "https://your-server.example.com")
+# ---- Render URL (webhook service ka URL) ----
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://your-webhook.onrender.com")
