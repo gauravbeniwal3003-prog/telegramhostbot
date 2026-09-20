@@ -3,8 +3,8 @@
 # ============================================
 
 # ---- Telegram ----
-BOT_TOKEN = "7891234567:AAFxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"   # @BotFather se
-ADMIN_ID  = 5123456789                                       # @userinfobot se
+BOT_TOKEN = "8239097468:AAHFzj81EJXQwHGMaBG_61brdcpGY2XKPZw"   # @BotFather se
+ADMIN_ID  = 7850023357                                       # @userinfobot se
 
 # ---- Channels (bot ko inme ADMIN banao) ----
 CHANNELS = [
@@ -15,7 +15,7 @@ CHANNELS = [
 ]
 
 # ---- GitHub (user bots store karne ke liye ALAG repo) ----
-GITHUB_TOKEN  = "ghp_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"       # Naya token (purana delete karo!)
+GITHUB_TOKEN  = "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"       # Naya token (purana delete karo!)
 GITHUB_REPO   = "gauravbeniwal3003-prog/bot-storage"         # Users ke files ka repo
 GITHUB_BRANCH = "main"
 
