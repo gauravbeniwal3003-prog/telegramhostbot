@@ -25,7 +25,7 @@ TEMP_DIR      = "bots"
 MAX_FILE_SIZE = 1 * 1024 * 1024   # 1 MB
 
 # ---- Render URL (deploy ke baad yahan paste karo) ----
-PUBLIC_BASE_URL = "https://telegramhostbot.onrender.com"
+PUBLIC_BASE_URL = "https://telegramhostbot.onrender.com/telegram/abc123xyz_secret_2024"
 
 # ---- Telegram Webhook secret (random string, koi bhi daal do) ----
 WEBHOOK_SECRET = "abc123xyz_secret_2024"
