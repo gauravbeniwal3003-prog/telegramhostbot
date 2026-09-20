@@ -16,7 +16,7 @@ CHANNELS = [
 
 # ---- GitHub (user bots store karne ke liye ALAG repo) ----
 GITHUB_TOKEN  = "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"       # Naya token (purana delete karo!)
-GITHUB_REPO   = "https://github.com/gauravbeniwal3003-prog/bot-storage"         # Users ke files ka repo
+GITHUB_REPO   = "gauravbeniwal3003-prog/bot-storage"         # Users ke files ka repo
 GITHUB_BRANCH = "main"
 
 # ---- Storage ----
